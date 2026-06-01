@@ -1,6 +1,11 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { AdminRequestDetail } from "@/components/admin/AdminRequestDetail";
-import { getPrototypeRequestDetail } from "@/lib/supabase/requests";
+import {
+  createAdminNote,
+  getPrototypeRequestDetail,
+  updatePrototypeRequestStatus,
+} from "@/lib/supabase/requests";
 
 export const dynamic = "force-dynamic";
 
@@ -8,12 +13,21 @@ type AdminRequestDetailPageProps = {
   params: Promise<{
     id: string;
   }>;
+  searchParams: Promise<{
+    noteError?: string;
+    noteSaved?: string;
+    statusError?: string;
+    statusUpdated?: string;
+  }>;
 };
 
 export default async function AdminRequestDetailPage({
   params,
+  searchParams,
 }: AdminRequestDetailPageProps) {
   const { id } = await params;
+  const { noteError, noteSaved, statusError, statusUpdated } =
+    await searchParams;
   let errorMessage = "";
   let notFoundMessage = "";
   let detail = null;
@@ -29,7 +43,73 @@ export default async function AdminRequestDetailPage({
   }
 
   if (detail) {
-    return <AdminRequestDetail detail={detail} />;
+    const updateStatusAction = async (formData: FormData) => {
+      "use server";
+
+      const fromStatus = String(formData.get("fromStatus") ?? "");
+      const toStatus = String(formData.get("toStatus") ?? "");
+      const memo = String(formData.get("memo") ?? "");
+
+      try {
+        await updatePrototypeRequestStatus({
+          requestId: id,
+          fromStatus,
+          toStatus,
+          memo,
+        });
+      } catch {
+        redirect(`/admin/requests/${id}?statusError=1`);
+      }
+
+      redirect(`/admin/requests/${id}?statusUpdated=1`);
+    };
+
+    const createAdminNoteAction = async (formData: FormData) => {
+      "use server";
+
+      const note = String(formData.get("note") ?? "").trim();
+
+      if (!note) {
+        redirect(`/admin/requests/${id}?noteError=empty`);
+      }
+
+      try {
+        await createAdminNote({
+          requestId: id,
+          note,
+          createdBy: "admin",
+        });
+      } catch {
+        redirect(`/admin/requests/${id}?noteError=1`);
+      }
+
+      redirect(`/admin/requests/${id}?noteSaved=1`);
+    };
+
+    const statusMessage =
+      statusUpdated === "1"
+        ? "success"
+        : statusError === "1"
+          ? "error"
+          : undefined;
+    const noteMessage =
+      noteSaved === "1"
+        ? "success"
+        : noteError === "empty"
+          ? "empty"
+          : noteError === "1"
+            ? "error"
+            : undefined;
+
+    return (
+      <AdminRequestDetail
+        adminNoteAction={createAdminNoteAction}
+        detail={detail}
+        noteMessage={noteMessage}
+        statusAction={updateStatusAction}
+        statusMessage={statusMessage}
+      />
+    );
   }
 
   return (

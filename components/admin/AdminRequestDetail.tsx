@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { AdminNoteForm } from "@/components/admin/AdminNoteForm";
+import { AdminNoteList } from "@/components/admin/AdminNoteList";
+import { AdminRequestStatusForm } from "@/components/admin/AdminRequestStatusForm";
 import {
   AdminRequestStatusBadge,
   getStatusLabel,
@@ -175,11 +178,26 @@ function getSelectionTypeLabel(recommendation: {
 }
 
 export function AdminRequestDetail({
+  adminNoteAction,
+  noteMessage,
   detail,
+  statusAction,
+  statusMessage,
 }: {
+  adminNoteAction: (formData: FormData) => void | Promise<void>;
   detail: PrototypeRequestDetail;
+  noteMessage?: "success" | "error" | "empty";
+  statusAction: (formData: FormData) => void | Promise<void>;
+  statusMessage?: "success" | "error";
 }) {
-  const { request, files, rfqDraft, recommendations, statusLogs } = detail;
+  const {
+    adminNotes,
+    request,
+    files,
+    rfqDraft,
+    recommendations,
+    statusLogs,
+  } = detail;
   const finalRfq = getFinalRfq(rfqDraft?.final_rfq);
 
   return (
@@ -208,7 +226,7 @@ export function AdminRequestDetail({
                 {displayValue(request.title)}
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                현재 관리자 페이지는 개발용 조회 화면입니다. 실제 배포 전에는
+                현재 관리자 기능은 개발용입니다. 실제 배포 전에는
                 관리자 인증을 적용해야 합니다.
               </p>
             </div>
@@ -241,6 +259,17 @@ export function AdminRequestDetail({
             </div>
           </div>
         </section>
+
+        <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+          <AdminRequestStatusForm
+            action={statusAction}
+            currentStatus={request.status}
+            message={statusMessage}
+          />
+          <AdminNoteForm action={adminNoteAction} message={noteMessage} />
+        </div>
+
+        <AdminNoteList notes={adminNotes} />
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <DetailCard title="기본 정보">

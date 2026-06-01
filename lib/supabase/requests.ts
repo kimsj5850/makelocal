@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
+  AdminNoteRecord,
   PrototypeRequestDetail,
   PrototypeRequestListItem,
   PrototypeRequestRecord,
@@ -222,7 +223,13 @@ export async function getPrototypeRequestDetail(
     return null;
   }
 
-  const [filesResult, rfqResult, recommendationsResult, logsResult] =
+  const [
+    filesResult,
+    rfqResult,
+    recommendationsResult,
+    logsResult,
+    notesResult,
+  ] =
     await Promise.all([
       supabase
         .from("request_files")
@@ -249,6 +256,12 @@ export async function getPrototypeRequestDetail(
         .eq("request_id", id)
         .order("created_at", { ascending: true })
         .returns<RequestStatusLogRecord[]>(),
+      supabase
+        .from("admin_notes")
+        .select("*")
+        .eq("request_id", id)
+        .order("created_at", { ascending: false })
+        .returns<AdminNoteRecord[]>(),
     ]);
 
   if (filesResult.error) {
@@ -267,11 +280,72 @@ export async function getPrototypeRequestDetail(
     throw logsResult.error;
   }
 
+  if (notesResult.error) {
+    throw notesResult.error;
+  }
+
   return {
     request,
     files: filesResult.data ?? [],
     rfqDraft: rfqResult.data?.[0] ?? null,
     recommendations: recommendationsResult.data ?? [],
     statusLogs: logsResult.data ?? [],
+    adminNotes: notesResult.data ?? [],
   };
+}
+
+export async function updatePrototypeRequestStatus(input: {
+  requestId: string;
+  fromStatus?: string | null;
+  toStatus: string;
+  memo?: string;
+}): Promise<void> {
+  const supabase = createSupabaseServerClient();
+  const memo = input.memo?.trim() || "관리자 상태 변경";
+
+  const { error: updateError } = await supabase
+    .from("prototype_requests")
+    .update({ status: input.toStatus })
+    .eq("id", input.requestId);
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  const { error: logError } = await supabase
+    .from("request_status_logs")
+    .insert({
+      request_id: input.requestId,
+      from_status: input.fromStatus ?? null,
+      to_status: input.toStatus,
+      changed_by: "admin",
+      memo,
+    });
+
+  if (logError) {
+    throw logError;
+  }
+}
+
+export async function createAdminNote(input: {
+  requestId: string;
+  note: string;
+  createdBy?: string;
+}): Promise<void> {
+  const note = input.note.trim();
+
+  if (!note) {
+    throw new Error("Admin note is empty.");
+  }
+
+  const supabase = createSupabaseServerClient();
+  const { error } = await supabase.from("admin_notes").insert({
+    request_id: input.requestId,
+    note,
+    created_by: input.createdBy ?? "admin",
+  });
+
+  if (error) {
+    throw error;
+  }
 }

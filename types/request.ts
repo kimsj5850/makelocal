@@ -159,10 +159,19 @@ export type RequestStatusLogRecord = {
   created_at: string;
 };
 
+export type AdminNoteRecord = {
+  id: string;
+  request_id: string;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type PrototypeRequestDetail = {
   request: PrototypeRequestRecord;
   files: RequestFileRecord[];
   rfqDraft: RfqDraftRecord | null;
   recommendations: SupplierRecommendationRecord[];
   statusLogs: RequestStatusLogRecord[];
+  adminNotes: AdminNoteRecord[];
 };
