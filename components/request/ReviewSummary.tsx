@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { getRequestDraft } from "@/lib/storage/requestDraftStorage";
 import type { RequestDraft } from "@/types/request";
 
-const attachedFiles = ["bracket_v2.step", "reference_image.png"];
+const attachedFiles = [
+  { name: "bracket_v2.step", storagePath: "" },
+  { name: "reference_image.png", storagePath: "" },
+];
 
 const fallbackRfqSummary = {
   title: "알루미늄 브라켓 시제품 제작",
@@ -18,6 +21,7 @@ const fallbackRfqSummary = {
 };
 
 const emptyDraft: RequestDraft = {
+  draftId: "",
   files: [],
   rfq: {},
   selectedSupplier: {
@@ -48,7 +52,10 @@ export function ReviewSummary() {
 
   const hasStoredFiles = draft.files.length > 0;
   const displayedFiles = hasStoredFiles
-    ? draft.files.map((file) => file.name)
+    ? draft.files.map((file) => ({
+        name: file.name,
+        storagePath: file.storagePath ?? "",
+      }))
     : attachedFiles;
 
   const rfqSummary = useMemo(
@@ -125,20 +132,25 @@ export function ReviewSummary() {
     <section className="grid gap-6">
       <SummaryCard title="첨부 파일">
         <ul className="grid gap-3">
-          {displayedFiles.map((fileName) => (
+          {displayedFiles.map((file) => (
             <li
-              key={fileName}
+              key={file.name}
               className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900"
             >
-              <span>{fileName}</span>
+              <span>{file.name}</span>
               <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">
-                {hasStoredFiles ? "임시 저장" : "샘플"}
+                {hasStoredFiles
+                  ? file.storagePath
+                    ? "업로드 완료"
+                    : "임시 저장"
+                  : "샘플"}
               </span>
             </li>
           ))}
         </ul>
         <p className="mt-4 text-sm leading-6 text-slate-600">
-          파일이 없어도 문의는 제출할 수 있습니다.
+          파일이 없어도 문의는 제출할 수 있습니다. 표시된 파일은 이미 임시
+          업로드된 파일 메타데이터입니다.
         </p>
       </SummaryCard>
 

@@ -2,8 +2,17 @@ import type { RequestDraft } from "@/types/request";
 
 const REQUEST_DRAFT_KEY = "makelocal_request_draft";
 
+function createDraftId() {
+  if (typeof window !== "undefined" && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function createDefaultRequestDraft(): RequestDraft {
   return {
+    draftId: createDraftId(),
     files: [],
     rfq: {},
     selectedSupplier: {
@@ -18,11 +27,42 @@ function canUseLocalStorage() {
   return typeof window !== "undefined" && Boolean(window.localStorage);
 }
 
+function normalizeFiles(value: Partial<RequestDraft>) {
+  if (!Array.isArray(value.files)) {
+    return [];
+  }
+
+  return value.files.map((file) => {
+    const legacyFile = file as typeof file & {
+      storage_path?: string;
+      stored_file_name?: string;
+      uploaded_at?: string;
+    };
+    const storagePath = file.storagePath ?? legacyFile.storage_path;
+
+    return {
+      id: file.id,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      extension: file.extension,
+      storagePath,
+      storedFileName: file.storedFileName ?? legacyFile.stored_file_name,
+      uploaded: file.uploaded ?? Boolean(storagePath),
+      uploadedAt: file.uploadedAt ?? legacyFile.uploaded_at,
+    };
+  });
+}
+
 function normalizeRequestDraft(value: Partial<RequestDraft>): RequestDraft {
   const defaultDraft = createDefaultRequestDraft();
 
   return {
-    files: Array.isArray(value.files) ? value.files : defaultDraft.files,
+    draftId:
+      typeof value.draftId === "string" && value.draftId.trim()
+        ? value.draftId
+        : defaultDraft.draftId,
+    files: normalizeFiles(value),
     rfq: {
       ...defaultDraft.rfq,
       ...(value.rfq ?? {}),

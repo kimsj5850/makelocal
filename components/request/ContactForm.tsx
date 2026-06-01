@@ -252,8 +252,8 @@ export function ContactForm() {
           </Link>
         </div>
         <p className="mt-4 text-sm leading-6 text-slate-500">
-          현재 입력값은 화면에서만 관리되며, 아직 DB 저장이나 이메일 발송은
-          수행하지 않습니다.
+          제출 시 연락처와 이전 단계에서 업로드한 파일 메타데이터가 저장되며,
+          이메일 발송은 아직 수행하지 않습니다.
         </p>
       </section>
     </form>

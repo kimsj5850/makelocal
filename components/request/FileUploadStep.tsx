@@ -4,31 +4,34 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { RequestStepIndicator } from "@/components/request/RequestStepIndicator";
 import {
+  ALLOWED_FILE_EXTENSIONS,
+  formatUploadFileSize,
+  validateFinalUploadFiles,
+} from "@/lib/storage/fileValidation";
+import {
   getRequestDraft,
+  saveRequestDraft,
   updateRequestDraft,
 } from "@/lib/storage/requestDraftStorage";
 import type { RequestFileDraft } from "@/types/request";
 
-const allowedExtensions = ["pdf", "step", "stp", "stl", "jpg", "jpeg", "png"];
 const maxFileCount = 5;
-const maxFileSizeBytes = 20 * 1024 * 1024;
 
-function getFileExtension(fileName: string) {
-  return fileName.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function formatFileSize(bytes: number) {
-  if (bytes < 1024 * 1024) {
-    return `${Math.max(1, Math.round(bytes / 1024))}KB`;
-  }
-
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-}
+type UploadDraftFileResponse =
+  | {
+      ok: true;
+      files: RequestFileDraft[];
+    }
+  | {
+      ok: false;
+      message: string;
+    };
 
 export function FileUploadStep() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<RequestFileDraft[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     const restoreTimer = window.setTimeout(() => {
@@ -38,7 +41,7 @@ export function FileUploadStep() {
     return () => window.clearTimeout(restoreTimer);
   }, []);
 
-  const addFiles = (fileList: FileList | File[]) => {
+  const addFiles = async (fileList: FileList | File[]) => {
     const incomingFiles = Array.from(fileList);
 
     if (incomingFiles.length === 0) {
@@ -50,39 +53,63 @@ export function FileUploadStep() {
       return;
     }
 
-    const nextFiles: RequestFileDraft[] = [];
+    const validationMessage = validateFinalUploadFiles(incomingFiles);
 
-    for (const file of incomingFiles) {
-      const extension = getFileExtension(file.name);
+    if (validationMessage) {
+      setErrorMessage(
+        validationMessage === "지원하지 않는 파일 형식입니다."
+          ? "지원하지 않는 파일 형식입니다. PDF, STEP, STL, JPG, PNG 파일만 첨부할 수 있습니다."
+          : validationMessage,
+      );
+      return;
+    }
 
-      if (!allowedExtensions.includes(extension)) {
+    setIsUploading(true);
+    setErrorMessage("");
+
+    try {
+      const draft = getRequestDraft();
+      const formData = new FormData();
+
+      saveRequestDraft({ draftId: draft.draftId });
+      formData.append("draftId", draft.draftId);
+      incomingFiles.forEach((file) => {
+        formData.append("files", file);
+      });
+
+      const response = await fetch("/api/requests/upload-draft-file", {
+        method: "POST",
+        body: formData,
+      });
+      const result = (await response.json()) as UploadDraftFileResponse;
+
+      if (!response.ok) {
         setErrorMessage(
-          "지원하지 않는 파일 형식입니다. PDF, STEP, STL, JPG, PNG 파일만 첨부할 수 있습니다.",
+          result.ok
+            ? "첨부 파일 업로드 중 문제가 발생했습니다."
+            : result.message || "첨부 파일 업로드 중 문제가 발생했습니다.",
         );
         return;
       }
 
-      if (file.size > maxFileSizeBytes) {
-        setErrorMessage("파일당 최대 20MB까지 첨부할 수 있습니다.");
+      if (!result.ok) {
+        setErrorMessage(
+          result.message || "첨부 파일 업로드 중 문제가 발생했습니다.",
+        );
         return;
       }
 
-      nextFiles.push({
-        id: `${file.name}-${file.size}-${file.lastModified}`,
-        name: file.name,
-        size: file.size,
-        type: file.type || "application/octet-stream",
-        extension,
-      });
-    }
+      const updatedFiles = [...selectedFiles, ...result.files];
+      setSelectedFiles(updatedFiles);
+      updateRequestDraft("files", updatedFiles);
 
-    const updatedFiles = [...selectedFiles, ...nextFiles];
-    setSelectedFiles(updatedFiles);
-    updateRequestDraft("files", updatedFiles);
-    setErrorMessage("");
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    } catch {
+      setErrorMessage("첨부 파일 업로드 중 문제가 발생했습니다.");
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -134,7 +161,7 @@ export function FileUploadStep() {
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => {
                   event.preventDefault();
-                  addFiles(event.dataTransfer.files);
+                  void addFiles(event.dataTransfer.files);
                 }}
               >
                 <input
@@ -144,9 +171,10 @@ export function FileUploadStep() {
                   multiple
                   type="file"
                   accept=".pdf,.step,.stp,.stl,.jpg,.jpeg,.png"
+                  disabled={isUploading}
                   onChange={(event) => {
                     if (event.target.files) {
-                      addFiles(event.target.files);
+                      void addFiles(event.target.files);
                     }
                   }}
                 />
@@ -158,23 +186,25 @@ export function FileUploadStep() {
                 </p>
                 <label
                   htmlFor="request-files"
-                  className="mt-6 inline-flex min-h-12 cursor-pointer items-center justify-center rounded-md bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-700/20 transition hover:bg-blue-800"
+                  className={`mt-6 inline-flex min-h-12 items-center justify-center rounded-md px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-700/20 transition ${
+                    isUploading
+                      ? "cursor-wait bg-blue-400"
+                      : "cursor-pointer bg-blue-700 hover:bg-blue-800"
+                  }`}
                 >
-                  파일 선택
+                  {isUploading ? "업로드 중입니다" : "파일 선택"}
                 </label>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
-                {[".pdf", ".step", ".stp", ".stl", ".jpg", ".jpeg", ".png"].map(
-                  (extension) => (
-                    <span
-                      key={extension}
-                      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5"
-                    >
-                      {extension}
-                    </span>
-                  ),
-                )}
+                {ALLOWED_FILE_EXTENSIONS.map((extension) => (
+                  <span
+                    key={extension}
+                    className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5"
+                  >
+                    .{extension}
+                  </span>
+                ))}
               </div>
 
               {errorMessage ? (
@@ -208,7 +238,10 @@ export function FileUploadStep() {
                           </p>
                           <p className="mt-2 text-xs text-slate-500">
                             {selectedFile.extension.toUpperCase()} ·{" "}
-                            {formatFileSize(selectedFile.size)}
+                            {formatUploadFileSize(selectedFile.size)} ·{" "}
+                            {selectedFile.storagePath
+                              ? "업로드 완료"
+                              : "임시 저장"}
                           </p>
                         </div>
                         <button
@@ -249,8 +282,8 @@ export function FileUploadStep() {
                 다음 단계에서 의뢰서 정보를 정리합니다
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                현재 선택한 파일은 화면에서만 관리되며, 아직 업로드되거나
-                실제 파일로 저장되지 않습니다.
+                첨부한 파일은 즉시 Supabase Storage에 임시 업로드되고,
+                최종 제출 시 파일 메타데이터가 제작 문의에 연결됩니다.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -262,7 +295,12 @@ export function FileUploadStep() {
               </Link>
               <Link
                 href="/request/rfq"
-                className="inline-flex min-h-12 items-center justify-center rounded-md bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-700/20 transition hover:bg-blue-800"
+                aria-disabled={isUploading}
+                className={`inline-flex min-h-12 items-center justify-center rounded-md px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-700/20 transition ${
+                  isUploading
+                    ? "pointer-events-none bg-blue-400"
+                    : "bg-blue-700 hover:bg-blue-800"
+                }`}
               >
                 파일 첨부 후 다음 단계로
               </Link>

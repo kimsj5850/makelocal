@@ -9,6 +9,7 @@ import {
 import type {
   PrototypeRequestDetail,
   PrototypeRequestStatus,
+  RequestFileRecord,
   RfqDraft,
 } from "@/types/request";
 
@@ -177,6 +178,35 @@ function getSelectionTypeLabel(recommendation: {
   return "선택 없음";
 }
 
+function FileDownloadCell({ file }: { file: RequestFileRecord }) {
+  if (file.storage_path.startsWith("local-only/")) {
+    return (
+      <span className="text-xs font-semibold text-slate-500">
+        메타데이터만 저장된 파일입니다.
+      </span>
+    );
+  }
+
+  if (!file.signedUrl) {
+    return (
+      <span className="text-xs font-semibold text-slate-500">
+        실제 파일 없음
+      </span>
+    );
+  }
+
+  return (
+    <a
+      href={file.signedUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex min-h-9 items-center justify-center rounded-md bg-blue-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-800"
+    >
+      다운로드
+    </a>
+  );
+}
+
 export function AdminRequestDetail({
   adminNoteAction,
   noteMessage,
@@ -319,8 +349,8 @@ export function AdminRequestDetail({
 
         <DetailCard title="첨부 파일">
           <p className="mb-4 text-sm leading-6 text-slate-600">
-            현재는 실제 파일 업로드가 아니라 파일 메타데이터만 저장됩니다.
-            다운로드 링크는 제공하지 않습니다.
+            실제 업로드된 파일은 private Storage의 임시 다운로드 링크로
+            제공합니다. 기존 local-only 파일은 메타데이터만 표시됩니다.
           </p>
           {files.length === 0 ? (
             <div className="rounded-md bg-slate-50 p-5 text-sm font-semibold text-slate-600">
@@ -328,13 +358,14 @@ export function AdminRequestDetail({
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[760px] w-full border-collapse text-left text-sm">
+              <table className="min-w-[880px] w-full border-collapse text-left text-sm">
                 <thead className="border-b border-slate-200 text-xs font-bold uppercase text-slate-500">
                   <tr>
                     <th className="py-3 pr-4">원본 파일명</th>
                     <th className="px-4 py-3">파일 형식</th>
                     <th className="px-4 py-3">파일 크기</th>
                     <th className="px-4 py-3">저장 경로</th>
+                    <th className="px-4 py-3">다운로드</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -351,6 +382,9 @@ export function AdminRequestDetail({
                       </td>
                       <td className="px-4 py-4 font-mono text-xs text-slate-600">
                         {displayValue(file.storage_path)}
+                      </td>
+                      <td className="px-4 py-4">
+                        <FileDownloadCell file={file} />
                       </td>
                     </tr>
                   ))}

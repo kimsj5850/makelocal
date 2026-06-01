@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { attachSignedUrlsToRequestFiles } from "@/lib/supabase/files";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   AdminNoteRecord,
@@ -284,9 +285,14 @@ export async function getPrototypeRequestDetail(
     throw notesResult.error;
   }
 
+  const files = await attachSignedUrlsToRequestFiles(
+    supabase,
+    filesResult.data ?? [],
+  );
+
   return {
     request,
-    files: filesResult.data ?? [],
+    files,
     rfqDraft: rfqResult.data?.[0] ?? null,
     recommendations: recommendationsResult.data ?? [],
     statusLogs: logsResult.data ?? [],

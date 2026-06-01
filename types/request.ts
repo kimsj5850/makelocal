@@ -4,6 +4,10 @@ export type RequestFileDraft = {
   size: number;
   type: string;
   extension: string;
+  storagePath?: string;
+  storedFileName?: string;
+  uploaded?: boolean;
+  uploadedAt?: string;
 };
 
 export type RfqDraft = {
@@ -44,6 +48,7 @@ export type ContactDraft = {
 };
 
 export type RequestDraft = {
+  draftId: string;
   files: RequestFileDraft[];
   rfq: RfqDraft;
   selectedSupplier: SelectedSupplierDraft;
@@ -108,6 +113,7 @@ export type RequestFileRecord = {
   storage_path: string;
   file_type: string;
   file_size: number | null;
+  signedUrl?: string | null;
   uploaded_at: string;
   created_at: string;
 };

@@ -25,6 +25,10 @@ function normalizeRequestDraft(value: unknown): RequestDraft {
     : {};
 
   return {
+    draftId:
+      typeof draft.draftId === "string" && draft.draftId.trim()
+        ? draft.draftId
+        : "",
     files: Array.isArray(draft.files) ? (draft.files as RequestDraft["files"]) : [],
     rfq: rfq as RequestDraft["rfq"],
     selectedSupplier: {
@@ -63,10 +67,45 @@ function normalizeRequestDraft(value: unknown): RequestDraft {
   };
 }
 
+function logFilesBeforeInsert(files: RequestDraft["files"]) {
+  console.log(
+    "submit request files",
+    files.map((file) => {
+      const legacyFile = file as typeof file & { storage_path?: string };
+
+      return {
+        name: file.name,
+        storagePath: file.storagePath,
+        storage_path: legacyFile.storage_path,
+      };
+    }),
+  );
+}
+
+async function parseRequestPayload(request: Request) {
+  const contentType = request.headers.get("content-type") ?? "";
+
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await request.formData();
+    const draftValue = formData.get("draft");
+
+    if (typeof draftValue !== "string") {
+      throw new Error("Request draft is missing.");
+    }
+
+    const draft = normalizeRequestDraft(JSON.parse(draftValue));
+
+    return draft;
+  }
+
+  const body = await request.json();
+
+  return normalizeRequestDraft(body);
+}
+
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const draft = normalizeRequestDraft(body);
+    const draft = await parseRequestPayload(request);
 
     if (!draft.contact.name?.trim() || !draft.contact.email?.trim()) {
       return NextResponse.json<SubmitRequestResponse>(
@@ -86,6 +125,7 @@ export async function POST(request: Request) {
       requestCode,
     );
 
+    logFilesBeforeInsert(draft.files);
     await createRequestFiles(supabase, createdRequest.id, draft.files);
     await createRfqDraft(supabase, createdRequest.id, draft.rfq);
     await createSupplierRecommendation(
