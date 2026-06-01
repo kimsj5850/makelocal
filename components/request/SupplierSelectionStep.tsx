@@ -3,53 +3,14 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { RequestStepIndicator } from "@/components/request/RequestStepIndicator";
-import {
-  SupplierRecommendationCard,
-  type SampleSupplier,
-} from "@/components/request/SupplierRecommendationCard";
+import { SupplierRecommendationCard } from "@/components/request/SupplierRecommendationCard";
+import { recommendSuppliers } from "@/lib/matching/recommendSuppliers";
 import {
   getRequestDraft,
   updateRequestDraft,
 } from "@/lib/storage/requestDraftStorage";
-
-const sampleSuppliers: SampleSupplier[] = [
-  {
-    id: "daegu-precision",
-    rank: 1,
-    name: "대구정밀가공 샘플업체",
-    region: "대구",
-    processes: ["MCT", "CNC", "밀링"],
-    machines: ["MCT 3대", "CNC 2대"],
-    materials: ["알루미늄", "스틸", "SUS"],
-    smallBatchAvailable: true,
-    leadTime: "7~14일",
-    reason: "알루미늄 소량 MCT 가공 대응 가능, 시제품 제작 경험 보유",
-  },
-  {
-    id: "local-sheet-metal",
-    rank: 2,
-    name: "로컬판금 샘플업체",
-    region: "대구",
-    processes: ["판금", "레이저 절단", "용접"],
-    machines: ["레이저 절단기", "절곡기", "용접기"],
-    materials: ["스틸", "SUS", "알루미늄 판재"],
-    smallBatchAvailable: true,
-    leadTime: "5~10일",
-    reason: "판금 케이스 및 브라켓류 시제품 제작에 적합",
-  },
-  {
-    id: "prototype-studio",
-    rank: 3,
-    name: "시제품제작 샘플업체",
-    region: "경북",
-    processes: ["3D프린팅", "간이 가공", "후가공"],
-    machines: ["FDM", "SLA", "소형 CNC"],
-    materials: ["PLA", "ABS", "레진", "알루미늄 일부"],
-    smallBatchAvailable: true,
-    leadTime: "3~7일",
-    reason: "초기 형상 검토와 빠른 시제품 제작에 적합",
-  },
-];
+import { listActiveSuppliers } from "@/lib/supabase/suppliers";
+import type { SupplierMatchResult } from "@/types/recommendation";
 
 const recommendationTags = [
   "제작 공정",
@@ -60,50 +21,86 @@ const recommendationTags = [
 ];
 
 export function SupplierSelectionStep() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [matches, setMatches] = useState<SupplierMatchResult[]>([]);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
 
   useEffect(() => {
-    const restoreTimer = window.setTimeout(() => {
-      const savedSelection = getRequestDraft().selectedSupplier;
+    let isMounted = true;
 
-      if (savedSelection.selectionType === "manager") {
-        setSelectedOption("manager");
-        return;
+    async function loadRecommendations() {
+      try {
+        const draft = getRequestDraft();
+        const activeSuppliers = await listActiveSuppliers();
+        const recommendedSuppliers = recommendSuppliers(
+          activeSuppliers,
+          draft.rfq,
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        setMatches(recommendedSuppliers);
+
+        if (draft.selectedSupplier.selectionType === "manager") {
+          setSelectedOption("manager");
+          return;
+        }
+
+        if (
+          draft.selectedSupplier.selectionType === "supplier" &&
+          draft.selectedSupplier.supplierId &&
+          recommendedSuppliers.some(
+            (match) => match.supplier.id === draft.selectedSupplier.supplierId,
+          )
+        ) {
+          setSelectedOption(draft.selectedSupplier.supplierId);
+        }
+      } catch {
+        if (isMounted) {
+          setLoadError(
+            "제조업체 데이터를 불러오는 중 문제가 발생했습니다. 매니저 검토 방식으로 진행할 수 있습니다.",
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
+    }
 
-      if (
-        savedSelection.selectionType === "supplier" &&
-        savedSelection.supplierId
-      ) {
-        setSelectedOption(savedSelection.supplierId);
-      }
-    }, 0);
+    const loadTimer = window.setTimeout(loadRecommendations, 0);
 
-    return () => window.clearTimeout(restoreTimer);
+    return () => {
+      isMounted = false;
+      window.clearTimeout(loadTimer);
+    };
   }, []);
 
-  const selectedSupplier = sampleSuppliers.find(
-    (supplier) => supplier.id === selectedOption,
+  const selectedMatch = matches.find(
+    (match) => match.supplier.id === selectedOption,
   );
   const isManagerSelected = selectedOption === "manager";
 
   const handleSupplierSelect = (supplierId: string) => {
-    const supplier = sampleSuppliers.find(
-      (sampleSupplier) => sampleSupplier.id === supplierId,
+    const match = matches.find(
+      (supplierMatch) => supplierMatch.supplier.id === supplierId,
     );
 
-    if (!supplier) {
+    if (!match) {
       return;
     }
 
-    setSelectedOption(supplier.id);
+    setSelectedOption(match.supplier.id);
     updateRequestDraft("selectedSupplier", {
       selectionType: "supplier",
-      supplierId: supplier.id,
-      supplierName: supplier.name,
-      region: supplier.region,
-      processes: supplier.processes,
-      matchReason: supplier.reason,
+      supplierId: match.supplier.id,
+      supplierName: match.supplier.company_name,
+      region: match.supplier.region ?? undefined,
+      processes: match.supplier.main_processes ?? undefined,
+      matchReason: match.matchReason,
     });
   };
 
@@ -114,6 +111,69 @@ export function SupplierSelectionStep() {
       supplierName: "매니저에게 맡기기",
     });
   };
+
+  const recommendationContent = (() => {
+    if (isLoading) {
+      return (
+        <section className="rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <h2 className="text-xl font-bold text-slate-950">
+            추천 업체를 불러오는 중입니다.
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            등록된 제조업체 DB와 제작의뢰서 정보를 비교하고 있습니다.
+          </p>
+        </section>
+      );
+    }
+
+    if (loadError) {
+      return (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-8 shadow-sm">
+          <h2 className="text-xl font-bold text-slate-950">
+            제조업체 데이터를 불러오지 못했습니다
+          </h2>
+          <p className="mt-3 leading-7 text-slate-700">{loadError}</p>
+          <button
+            type="button"
+            onClick={handleManagerSelect}
+            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-700/20 transition hover:bg-blue-800"
+          >
+            매니저에게 맡기기
+          </button>
+        </section>
+      );
+    }
+
+    if (matches.length === 0) {
+      return (
+        <section className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
+          <h2 className="text-xl font-bold text-slate-950">
+            아직 등록된 제조업체가 없습니다
+          </h2>
+          <p className="mt-3 leading-7 text-slate-600">
+            현재 등록된 제조업체 DB가 없어 매니저 검토 방식으로 진행할 수
+            있습니다.
+          </p>
+          <button
+            type="button"
+            onClick={handleManagerSelect}
+            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-700/20 transition hover:bg-blue-800"
+          >
+            매니저에게 맡기기
+          </button>
+        </section>
+      );
+    }
+
+    return matches.map((match) => (
+      <SupplierRecommendationCard
+        key={match.supplier.id}
+        match={match}
+        isSelected={selectedOption === match.supplier.id}
+        onSelect={handleSupplierSelect}
+      />
+    ));
+  })();
 
   return (
     <main className="min-h-screen bg-slate-50 px-5 py-10 text-slate-900 sm:px-8 lg:py-14">
@@ -161,16 +221,7 @@ export function SupplierSelectionStep() {
         </section>
 
         <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_340px]">
-          <section className="grid gap-5">
-            {sampleSuppliers.map((supplier) => (
-              <SupplierRecommendationCard
-                key={supplier.id}
-                supplier={supplier}
-                isSelected={selectedOption === supplier.id}
-                onSelect={handleSupplierSelect}
-              />
-            ))}
-          </section>
+          <section className="grid gap-5">{recommendationContent}</section>
 
           <aside className="grid gap-6 self-start xl:sticky xl:top-6">
             <section
@@ -203,21 +254,23 @@ export function SupplierSelectionStep() {
                     : "border border-slate-200 bg-white text-slate-900 hover:border-blue-200 hover:bg-blue-50"
                 }`}
               >
-                {isManagerSelected ? "매니저에게 맡기기 선택됨" : "매니저에게 맡기기"}
+                {isManagerSelected
+                  ? "매니저에게 맡기기 선택됨"
+                  : "매니저에게 맡기기"}
               </button>
             </section>
 
             <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
               <p className="text-sm font-semibold text-blue-700">선택 상태</p>
               <h2 className="mt-2 text-xl font-bold text-slate-950">
-                {selectedSupplier
-                  ? selectedSupplier.name
+                {selectedMatch
+                  ? selectedMatch.supplier.company_name
                   : isManagerSelected
                     ? "매니저에게 맡기기"
                     : "아직 선택 전입니다"}
               </h2>
               <p className="mt-4 text-sm leading-6 text-slate-600">
-                {selectedSupplier
+                {selectedMatch
                   ? "선택한 업체 후보는 최종 확인 단계에서 다시 확인할 수 있습니다."
                   : isManagerSelected
                     ? "운영자가 의뢰 내용과 제조업체 조건을 검토해 연결 가능성을 안내합니다."
@@ -245,8 +298,8 @@ export function SupplierSelectionStep() {
                 추천 후보를 확인했다면 최종 확인으로 이동하세요
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                선택값은 현재 화면에서만 관리되며, 아직 DB 저장이나 업체 연락은
-                수행하지 않습니다.
+                선택값은 임시 저장되며, 실제 업체 연락은 제출 후 운영자 검토를
+                거쳐 진행됩니다.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
