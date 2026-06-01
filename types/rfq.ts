@@ -1,1 +1,1 @@
-export type { RfqDraft } from "@/types/request";
+export type { RfqDraft, RfqDraftRecord } from "@/types/request";

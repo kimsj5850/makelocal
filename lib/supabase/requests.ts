@@ -1,5 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { RequestDraft, RfqDraft } from "@/types/request";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type {
+  PrototypeRequestDetail,
+  PrototypeRequestListItem,
+  PrototypeRequestRecord,
+  RequestDraft,
+  RequestFileRecord,
+  RequestStatusLogRecord,
+  RfqDraft,
+  RfqDraftRecord,
+  SupplierRecommendationRecord,
+} from "@/types/request";
 
 type CreatedPrototypeRequest = {
   id: string;
@@ -146,4 +157,121 @@ export async function createRequestStatusLog(
   if (error) {
     throw error;
   }
+}
+
+export async function listPrototypeRequests() {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("prototype_requests")
+    .select(
+      [
+        "id",
+        "request_code",
+        "status",
+        "title",
+        "contact_name",
+        "company_name",
+        "email",
+        "phone",
+        "submitted_at",
+        "created_at",
+      ].join(","),
+    )
+    .order("created_at", { ascending: false })
+    .returns<PrototypeRequestListItem[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+export async function getPrototypeRequestDetail(
+  id: string,
+): Promise<PrototypeRequestDetail | null> {
+  const supabase = createSupabaseServerClient();
+  const { data: request, error: requestError } = await supabase
+    .from("prototype_requests")
+    .select(
+      [
+        "id",
+        "request_code",
+        "status",
+        "title",
+        "description",
+        "purpose",
+        "contact_name",
+        "company_name",
+        "email",
+        "phone",
+        "preferred_contact",
+        "submitted_at",
+        "created_at",
+        "updated_at",
+      ].join(","),
+    )
+    .eq("id", id)
+    .maybeSingle<PrototypeRequestRecord>();
+
+  if (requestError) {
+    throw requestError;
+  }
+
+  if (!request) {
+    return null;
+  }
+
+  const [filesResult, rfqResult, recommendationsResult, logsResult] =
+    await Promise.all([
+      supabase
+        .from("request_files")
+        .select("*")
+        .eq("request_id", id)
+        .order("created_at", { ascending: true })
+        .returns<RequestFileRecord[]>(),
+      supabase
+        .from("rfq_drafts")
+        .select("*")
+        .eq("request_id", id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .returns<RfqDraftRecord[]>(),
+      supabase
+        .from("supplier_recommendations")
+        .select("*")
+        .eq("request_id", id)
+        .order("created_at", { ascending: true })
+        .returns<SupplierRecommendationRecord[]>(),
+      supabase
+        .from("request_status_logs")
+        .select("*")
+        .eq("request_id", id)
+        .order("created_at", { ascending: true })
+        .returns<RequestStatusLogRecord[]>(),
+    ]);
+
+  if (filesResult.error) {
+    throw filesResult.error;
+  }
+
+  if (rfqResult.error) {
+    throw rfqResult.error;
+  }
+
+  if (recommendationsResult.error) {
+    throw recommendationsResult.error;
+  }
+
+  if (logsResult.error) {
+    throw logsResult.error;
+  }
+
+  return {
+    request,
+    files: filesResult.data ?? [],
+    rfqDraft: rfqResult.data?.[0] ?? null,
+    recommendations: recommendationsResult.data ?? [],
+    statusLogs: logsResult.data ?? [],
+  };
 }

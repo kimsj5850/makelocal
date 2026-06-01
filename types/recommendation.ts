@@ -1,1 +1,4 @@
-export type { SelectedSupplierDraft as SupplierRecommendationDraft } from "@/types/request";
+export type {
+  SelectedSupplierDraft as SupplierRecommendationDraft,
+  SupplierRecommendationRecord,
+} from "@/types/request";
